@@ -1,0 +1,14 @@
+{
+  "name": "cyberpwr-monorepo",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:web\"",
+    "dev:server": "npm run start -w packages/server",
+    "dev:web": "npm run dev -w packages/web",
+    "build": "npm run build -w packages/web"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

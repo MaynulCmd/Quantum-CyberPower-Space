@@ -1,0 +1,25 @@
+CREATE DATABASE IF NOT EXISTS cyberpwr_db;
+USE cyberpwr_db;
+CREATE TABLE IF NOT EXISTS users (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  username VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS projects (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT,
+  name VARCHAR(255),
+  content TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS ai_chats (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT,
+  provider VARCHAR(100),
+  prompt TEXT,
+  response TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+INSERT IGNORE INTO users (username, password_hash) VALUES ('shaoncmd@gmail.com', '__HASH_PLACEHOLDER__');
