@@ -21,7 +21,7 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server, path: '/terminal' });
 
-// Database pool
+// Database
 const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'cyberpwr_user',
@@ -37,18 +37,18 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(morgan('combined'));
 
-// Storage directory
+// Storage
 const storageDir = path.join(__dirname, '../storage');
 if (!fs.existsSync(storageDir)) fs.mkdirSync(storageDir, { recursive: true });
 app.use('/storage', express.static(storageDir));
 const upload = multer({ dest: storageDir });
 
-// JWT Auth
+// Auth middleware
 const authenticate = async (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default_secret_change_me');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default_secret');
     const [users] = await pool.query('SELECT id, username FROM users WHERE id = ?', [decoded.userId]);
     if (users.length === 0) return res.status(401).json({ error: 'User not found' });
     req.user = users[0];
@@ -72,29 +72,22 @@ const AI_PROVIDERS = {
   deepseek: { url: 'https://api.deepseek.com/v1/chat/completions', key: process.env.AI_DEEPSEEK_KEY, model: 'deepseek-chat' },
 };
 
-// Environment variables API (for Creator Panel)
+// Environment API (for creator)
 app.get('/api/env', authenticate, (req, res) => {
-  const env = {
-    AI_OPENAI_KEY: process.env.AI_OPENAI_KEY,
-    AI_GEMINI_KEY: process.env.AI_GEMINI_KEY,
-    AI_COHERE_KEY: process.env.AI_COHERE_KEY,
-    AI_HUGGINGFACE_KEY: process.env.AI_HUGGINGFACE_KEY,
-    AI_GROQ_KEY: process.env.AI_GROQ_KEY,
-    AI_MISTRAL_KEY: process.env.AI_MISTRAL_KEY,
-    AI_ANTHROPIC_KEY: process.env.AI_ANTHROPIC_KEY,
-    AI_REPLICATE_KEY: process.env.AI_REPLICATE_KEY,
-    AI_TOGETHER_KEY: process.env.AI_TOGETHER_KEY,
-    AI_DEEPSEEK_KEY: process.env.AI_DEEPSEEK_KEY,
-    GITHUB_TOKEN: process.env.GITHUB_TOKEN
-  };
+  if (req.user.username !== 'shaoncmd@gmail.com') return res.status(403).json({ error: 'Forbidden' });
+  const env = {};
+  for (const key of Object.keys(AI_PROVIDERS)) {
+    env[`AI_${key.toUpperCase()}_KEY`] = process.env[`AI_${key.toUpperCase()}_KEY`] || '';
+  }
+  env.GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
   res.json(env);
 });
 
 app.post('/api/env', authenticate, async (req, res) => {
-  if (req.user.username !== 'shaoncmd@gmail.com') return res.status(403).json({ error: 'Only creator can update env' });
+  if (req.user.username !== 'shaoncmd@gmail.com') return res.status(403).json({ error: 'Forbidden' });
   const updates = req.body;
   const envPath = path.join(__dirname, '../.env');
-  let envContent = fs.readFileSync(envPath, 'utf8');
+  let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
   for (const [key, value] of Object.entries(updates)) {
     const regex = new RegExp(`^${key}=.*$`, 'm');
     if (regex.test(envContent)) {
@@ -104,57 +97,48 @@ app.post('/api/env', authenticate, async (req, res) => {
     }
   }
   fs.writeFileSync(envPath, envContent);
-  // Reload env
   dotenv.config({ override: true });
   res.json({ success: true });
 });
 
-// AI Chat endpoint
+// AI chat endpoint
 app.post('/api/ai/chat', authenticate, async (req, res) => {
   const { provider, prompt } = req.body;
   const ai = AI_PROVIDERS[provider];
-  if (!ai) return res.status(400).json({ error: 'Invalid AI provider' });
-  if (!ai.key) return res.status(401).json({ error: `API key missing for ${provider}. Set in Creator Panel.` });
+  if (!ai) return res.status(400).json({ error: 'Invalid provider' });
+  if (!ai.key) return res.status(401).json({ error: `API key missing for ${provider}` });
   try {
-    let response = null;
+    let response = '';
     switch (provider) {
       case 'openai':
-        const openaiRes = await axios.post(ai.url, { model: ai.model, messages: [{ role: 'user', content: prompt }] }, { headers: { 'Authorization': `Bearer ${ai.key}` } });
-        response = openaiRes.data.choices[0].message.content;
+        const oa = await axios.post(ai.url, { model: ai.model, messages: [{ role: 'user', content: prompt }] }, { headers: { 'Authorization': `Bearer ${ai.key}` } });
+        response = oa.data.choices[0].message.content;
         break;
       case 'gemini':
-        const geminiRes = await axios.post(ai.url, { contents: [{ parts: [{ text: prompt }] }] });
-        response = geminiRes.data.candidates[0].content.parts[0].text;
+        const gm = await axios.post(ai.url, { contents: [{ parts: [{ text: prompt }] }] });
+        response = gm.data.candidates[0].content.parts[0].text;
         break;
       case 'cohere':
-        const cohereRes = await axios.post(ai.url, { prompt, max_tokens: 500, model: ai.model }, { headers: { 'Authorization': `Bearer ${ai.key}` } });
-        response = cohereRes.data.generations[0].text;
+        const ch = await axios.post(ai.url, { prompt, max_tokens: 500, model: ai.model }, { headers: { 'Authorization': `Bearer ${ai.key}` } });
+        response = ch.data.generations[0].text;
         break;
       case 'huggingface':
-        const hfRes = await axios.post(ai.url, { inputs: prompt }, { headers: { 'Authorization': `Bearer ${ai.key}` } });
-        response = hfRes.data[0].generated_text;
+        const hf = await axios.post(ai.url, { inputs: prompt }, { headers: { 'Authorization': `Bearer ${ai.key}` } });
+        response = hf.data[0].generated_text;
         break;
-      case 'groq':
-      case 'mistral':
-      case 'together':
-        const genericRes = await axios.post(ai.url, { model: ai.model, messages: [{ role: 'user', content: prompt }] }, { headers: { 'Authorization': `Bearer ${ai.key}` } });
-        response = genericRes.data.choices[0].message.content;
-        break;
-      case 'anthropic':
-        const anthRes = await axios.post(ai.url, { model: ai.model, messages: [{ role: 'user', content: prompt }], max_tokens: 500 }, { headers: { 'x-api-key': ai.key, 'anthropic-version': '2023-06-01' } });
-        response = anthRes.data.content[0].text;
-        break;
-      default: response = "AI provider not implemented.";
+      default:
+        const generic = await axios.post(ai.url, { model: ai.model, messages: [{ role: 'user', content: prompt }] }, { headers: { 'Authorization': `Bearer ${ai.key}` } });
+        response = generic.data.choices[0].message.content;
     }
     await pool.query('INSERT INTO ai_chats (user_id, provider, prompt, response) VALUES (?, ?, ?, ?)', [req.user.id, provider, prompt, response]);
     res.json({ response });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: `AI call failed: ${err.message}` });
+    res.status(500).json({ error: err.message });
   }
 });
 
-// File upload, projects, etc. (same as before)
+// File upload
 app.post('/api/storage/upload', authenticate, upload.single('file'), async (req, res) => {
   const file = req.file;
   if (!file) return res.status(400).json({ error: 'No file' });
@@ -165,6 +149,7 @@ app.post('/api/storage/upload', authenticate, upload.single('file'), async (req,
   res.json({ message: 'Uploaded', path: `/storage/${req.user.id}/${file.originalname}` });
 });
 
+// Projects
 app.get('/api/projects', authenticate, async (req, res) => {
   const [rows] = await pool.query('SELECT * FROM projects WHERE user_id = ?', [req.user.id]);
   res.json(rows);
@@ -179,7 +164,12 @@ app.put('/api/projects/:id', authenticate, async (req, res) => {
   await pool.query('UPDATE projects SET content = ? WHERE id = ? AND user_id = ?', [content, req.params.id, req.user.id]);
   res.json({ success: true });
 });
+app.delete('/api/projects/:id', authenticate, async (req, res) => {
+  await pool.query('DELETE FROM projects WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
+  res.json({ success: true });
+});
 
+// GitHub backup
 app.post('/api/github/backup', authenticate, async (req, res) => {
   const git = simpleGit(path.join(storageDir, req.user.id.toString()));
   try {
@@ -194,9 +184,9 @@ app.post('/api/github/backup', authenticate, async (req, res) => {
   }
 });
 
-// WebSocket Terminal
+// Terminal WebSocket
 wss.on('connection', (ws) => {
-  ws.send(JSON.stringify({ output: 'Terminal ready.\n' }));
+  ws.send(JSON.stringify({ output: 'Terminal ready. Use Linux commands.\n' }));
   ws.on('message', (message) => {
     const command = message.toString();
     exec(command, { cwd: storageDir, shell: '/system/bin/sh' }, (error, stdout, stderr) => {
@@ -223,9 +213,9 @@ app.post('/api/auth/login', async (req, res) => {
   if (rows.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
   const valid = await bcrypt.compare(password, rows[0].password_hash);
   if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
-  const token = jwt.sign({ userId: rows[0].id }, process.env.JWT_SECRET || 'default_secret_change_me', { expiresIn: '7d' });
+  const token = jwt.sign({ userId: rows[0].id }, process.env.JWT_SECRET || 'default_secret', { expiresIn: '7d' });
   res.json({ token, user: { id: rows[0].id, username: rows[0].username } });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));

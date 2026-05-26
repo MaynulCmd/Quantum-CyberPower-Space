@@ -22,4 +22,4 @@ CREATE TABLE IF NOT EXISTS ai_chats (
   response TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-INSERT IGNORE INTO users (username, password_hash) VALUES ('shaoncmd@gmail.com', '__HASH_PLACEHOLDER__');
+INSERT IGNORE INTO users (username, password_hash) VALUES ('shaoncmd@gmail.com', '$2a$10$kF2P8i3mB47HJAPBXEp5kuVv0SM/z/UsrOhBKjZQgt3zjaanL7DQm');
